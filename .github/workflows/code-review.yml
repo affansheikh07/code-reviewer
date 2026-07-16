@@ -28,6 +28,7 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: override the model, e.g. gemini-2.0-flash-lite
-          # REVIEW_MODEL: gemini-2.0-flash
+          # Optional: override the model. Must be a model with free-tier quota,
+          # e.g. gemini-2.5-flash (default) or gemini-2.5-flash-lite.
+          # REVIEW_MODEL: gemini-2.5-flash
         run: python -m reviewer.main
