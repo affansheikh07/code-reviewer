@@ -80,16 +80,21 @@ reviewer focuses on or how strict it is. If you change the output shape, keep
 
 ### Change the model
 
-Set the `REVIEW_MODEL` environment variable in the workflow (defaults to
-`gemini-2.5-flash`). For example, `gemini-2.5-flash-lite` for faster/cheaper
-runs.
+By default the reviewer **auto-discovers** which models your API key can use
+(via the Gemini `ListModels` endpoint) and picks the best available free-tier
+Flash model. This keeps it working even as Google deprecates and rotates model
+names (a frequent occurrence — e.g. `gemini-2.0-flash` and `gemini-2.5-flash`
+were both retired/restricted during 2026).
 
-> **Important:** the model must be one that still has free-tier quota. Older
-> models like `gemini-2.0-flash` were deprecated in 2026 and their free-tier
-> quota is `0`, so they return `429` on every request. If you see a "no
-> free-tier quota (limit: 0)" error, switch to a current Flash model. You can
-> check which models your key can use, and their live limits, in
-> **Google AI Studio → Dashboard**.
+To pin a specific model instead, set the `REVIEW_MODEL` environment variable in
+the workflow, e.g. `gemini-3-flash-preview` or `gemini-3.1-flash-lite`. When
+set, it overrides auto-discovery.
+
+> **Note:** the model must be one your key actually has access to with free-tier
+> quota. Older models get a quota of `0` (429) or become unavailable to new
+> users (404). If you pin a model and hit those errors, remove `REVIEW_MODEL` to
+> let auto-discovery pick a working one, or check **Google AI Studio →
+> Dashboard** for your available models and live limits.
 
 ### Tune chunking
 

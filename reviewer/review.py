@@ -14,13 +14,22 @@ import requests
 from .get_diff import ChangedFile
 from .prompts import build_review_prompt
 
-# Free-tier friendly model. Override with the REVIEW_MODEL env var if desired.
-# NOTE: gemini-2.0-flash was deprecated/shut down in 2026 and has a free-tier
-# quota of 0, so it always 429s. Use a currently supported Flash model.
-DEFAULT_MODEL = "gemini-2.5-flash"
+# Google rotates model names frequently and restricts older ones to existing
+# users, so we DISCOVER which models the key can use at runtime (see
+# resolve_model) instead of relying on a single hardcoded name. This preference
+# list is only the tie-breaker among whatever is actually available.
+MODEL_PREFERENCE = [
+    "gemini-3-flash-preview",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-flash-latest",
+]
 GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
+MODELS_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # Rough character budget per request to stay well under model/token limits.
 # Files whose diff exceeds this are reviewed in their own request.
@@ -81,6 +90,65 @@ def _retry_delay_from_body(body: str) -> float | None:
     if match:
         return float(match.group(1))
     return None
+
+
+def list_available_models(api_key: str, session: requests.Session) -> list[str]:
+    """Return model IDs the key can use with generateContent, best-effort."""
+    resp = session.get(
+        MODELS_ENDPOINT,
+        headers={"x-goog-api-key": api_key},
+        params={"pageSize": 1000},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    models: list[str] = []
+    for m in resp.json().get("models", []):
+        if "generateContent" in m.get("supportedGenerationMethods", []):
+            name = m.get("name", "")
+            if name.startswith("models/"):
+                name = name[len("models/") :]
+            models.append(name)
+    return models
+
+
+def resolve_model(
+    api_key: str,
+    session: requests.Session,
+    override: str | None = None,
+) -> str:
+    """Pick a usable model, preferring free-tier Flash models.
+
+    If ``override`` (REVIEW_MODEL) is set it wins. Otherwise we query the API
+    for models this key can actually access and choose the best available one,
+    so we stay resilient to Google deprecating/rotating model names.
+    """
+    if override:
+        return override
+
+    try:
+        available = list_available_models(api_key, session)
+    except requests.RequestException:
+        available = []
+
+    available_set = set(available)
+    for preferred in MODEL_PREFERENCE:
+        if preferred in available_set:
+            return preferred
+
+    # No preferred match: fall back to any available Flash (non-image/tts) model.
+    flash = [
+        m
+        for m in available
+        if "flash" in m and "image" not in m and "tts" not in m
+    ]
+    if flash:
+        return sorted(flash)[0]
+
+    if available:
+        return available[0]
+
+    # Nothing discovered (e.g. list call failed) — try the top preference.
+    return MODEL_PREFERENCE[0]
 
 
 def _call_gemini(
@@ -182,8 +250,9 @@ def review_diff(
     session: requests.Session | None = None,
 ) -> Review:
     """Review all changed files, chunking per size, and merge the results."""
-    model = model or os.environ.get("REVIEW_MODEL", DEFAULT_MODEL)
     session = session or requests.Session()
+    model = resolve_model(api_key, session, model or os.environ.get("REVIEW_MODEL"))
+    print(f"Using review model: {model}")
 
     chunks = _chunk_files(files)
     if not chunks:
