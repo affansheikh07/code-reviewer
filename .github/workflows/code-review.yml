@@ -1,0 +1,33 @@
+name: Smart Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+# The built-in GITHUB_TOKEN needs write access to post PR comments.
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run smart code reviewer
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: override the model, e.g. gemini-2.0-flash-lite
+          # REVIEW_MODEL: gemini-2.0-flash
+        run: python -m reviewer.main
