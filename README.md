@@ -84,6 +84,11 @@ flowchart LR
 
 ## Example output
 
+The reviewer running on a real pull request — inline comments on the exact lines,
+plus a summary comment with an overall score:
+
+![Smart Code Reviewer posting inline comments and a summary with a score on a pull request](assets/example-review.png)
+
 A summary comment posted on the PR:
 
 > ## Automated Code Review
