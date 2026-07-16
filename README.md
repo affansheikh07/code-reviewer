@@ -81,8 +81,15 @@ reviewer focuses on or how strict it is. If you change the output shape, keep
 ### Change the model
 
 Set the `REVIEW_MODEL` environment variable in the workflow (defaults to
-`gemini-2.0-flash`). For example, `gemini-2.0-flash-lite` for faster/cheaper
+`gemini-2.5-flash`). For example, `gemini-2.5-flash-lite` for faster/cheaper
 runs.
+
+> **Important:** the model must be one that still has free-tier quota. Older
+> models like `gemini-2.0-flash` were deprecated in 2026 and their free-tier
+> quota is `0`, so they return `429` on every request. If you see a "no
+> free-tier quota (limit: 0)" error, switch to a current Flash model. You can
+> check which models your key can use, and their live limits, in
+> **Google AI Studio → Dashboard**.
 
 ### Tune chunking
 

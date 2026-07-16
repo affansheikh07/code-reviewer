@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 import time
 from dataclasses import dataclass, field
@@ -14,7 +15,9 @@ from .get_diff import ChangedFile
 from .prompts import build_review_prompt
 
 # Free-tier friendly model. Override with the REVIEW_MODEL env var if desired.
-DEFAULT_MODEL = "gemini-2.0-flash"
+# NOTE: gemini-2.0-flash was deprecated/shut down in 2026 and has a free-tier
+# quota of 0, so it always 429s. Use a currently supported Flash model.
+DEFAULT_MODEL = "gemini-2.5-flash"
 GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 )
@@ -63,6 +66,23 @@ def _extract_json(text: str) -> dict:
         raise ReviewError("Model response contained no JSON object")
 
 
+def _is_hard_quota_zero(body: str) -> bool:
+    """True if a 429 body indicates a permanent quota of 0 (deprecated/free=0).
+
+    Retrying such a request is pointless — it will never succeed until the
+    model or billing tier changes.
+    """
+    return "limit: 0" in body or "limit:0" in body
+
+
+def _retry_delay_from_body(body: str) -> float | None:
+    """Extract Gemini's suggested retry delay (e.g. "retryDelay": "17s")."""
+    match = re.search(r'"?retryDelay"?\s*:?\s*"?(\d+(?:\.\d+)?)s', body)
+    if match:
+        return float(match.group(1))
+    return None
+
+
 def _call_gemini(
     prompt: str,
     api_key: str,
@@ -87,15 +107,23 @@ def _call_gemini(
             resp = session.post(url, headers=headers, json=payload, timeout=60)
         except requests.RequestException as exc:
             last_exc = exc
-            time.sleep(2 ** attempt)
+            time.sleep(2 ** attempt + random.uniform(0, 1))
             continue
 
         # Retry on rate limit / transient server errors with backoff.
         if resp.status_code in (429, 500, 502, 503, 504):
-            last_exc = ReviewError(
-                f"Gemini returned {resp.status_code}: {resp.text[:200]}"
-            )
-            time.sleep(2 ** attempt)
+            body = resp.text
+            # A hard quota of 0 (e.g. deprecated model) will never recover.
+            if resp.status_code == 429 and _is_hard_quota_zero(body):
+                raise ReviewError(
+                    f"Model '{model}' has no free-tier quota (limit: 0). It may be "
+                    "deprecated or require billing. Set REVIEW_MODEL to a supported "
+                    f"model such as 'gemini-2.5-flash'. Details: {body[:200]}"
+                )
+            last_exc = ReviewError(f"Gemini returned {resp.status_code}: {body[:200]}")
+            # Honor server-suggested delay when present, else exponential backoff.
+            delay = _retry_delay_from_body(body) or (2 ** attempt)
+            time.sleep(delay + random.uniform(0, 1))
             continue
 
         if resp.status_code != 200:
